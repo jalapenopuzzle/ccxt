@@ -34,7 +34,7 @@ module.exports = class binance extends Exchange {
                 'fetchFundingFees': true,
                 'fetchDeposits': true,
                 'fetchWithdrawals': true,
-                'fetchTransactions': false,
+                'fetchTransactions': true,
                 'fetchTradingFee': true,
                 'fetchTradingFees': true,
                 'cancelAllOrders': true,
@@ -1930,6 +1930,61 @@ module.exports = class binance extends Exchange {
             'info': response,
             'id': this.safeString (response, 'id'),
         };
+    }
+
+    async fetchTransactions (code = undefined, since = undefined, limit = undefined, params = {}) {
+        await this.loadMarkets ();
+        let currency = undefined;
+        const request = {};
+        if (code !== undefined) {
+            currency = this.currency (code);
+            request['asset'] = currency['id'];
+        }
+        if (since !== undefined) {
+            request['startTime'] = since;
+            // max 3 months range https://github.com/ccxt/ccxt/issues/6495
+            request['endTime'] = this.sum (since, 7776000000);
+        }
+        const responseDepositsPromise = this.wapiGetDepositHistory (this.extend (request, params));
+        //
+        //     {     success:    true,
+        //       depositList: [ { insertTime:  1517425007000,
+        //                            amount:  0.3,
+        //                           address: "0x0123456789abcdef",
+        //                        addressTag: "",
+        //                              txId: "0x0123456789abcdef",
+        //                             asset: "ETH",
+        //                            status:  1                                                                    } ] }
+        //
+        const responseWithdrawalsPromise = this.wapiGetWithdrawHistory (this.extend (request, params));
+        //
+        //     { withdrawList: [ {      amount:  14,
+        //                             address: "0x0123456789abcdef...",
+        //                         successTime:  1514489710000,
+        //                      transactionFee:  0.01,
+        //                          addressTag: "",
+        //                                txId: "0x0123456789abcdef...",
+        //                                  id: "0123456789abcdef...",
+        //                               asset: "ETH",
+        //                           applyTime:  1514488724000,
+        //                              status:  6                       },
+        //                       {      amount:  7600,
+        //                             address: "0x0123456789abcdef...",
+        //                         successTime:  1515323226000,
+        //                      transactionFee:  0.01,
+        //                          addressTag: "",
+        //                                txId: "0x0123456789abcdef...",
+        //                                  id: "0123456789abcdef...",
+        //                               asset: "ICN",
+        //                           applyTime:  1515322539000,
+        //                              status:  6                       }  ],
+        //            success:    true                                         }
+        //
+        const responseDeposits = await responseDepositsPromise;
+        const responseWithdrawals = await responseWithdrawalsPromise;
+        let transactions = responseDeposits['depositList'];
+        transactions = transactions.concat (responseWithdrawals['withdrawList']);
+        return this.parseTransactions (transactions, currency, since, limit);
     }
 
     parseTradingFee (fee, market = undefined) {
